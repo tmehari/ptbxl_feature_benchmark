@@ -2,10 +2,12 @@ import pandas as pd
 import numpy as np 
 from os.path import join 
 import pdb
-
+import re
+import time
+import pickle
+from os import makedirs
+import json 
 feature_col_map = {'glasgow':'Glasgow_feature', 'kit':'KIT_feature', 'ge':'GE_feature'}
-
-
 
 def replace_nans(df):
     hasnancols = list(df.columns[df.isnull().any()])
@@ -14,18 +16,32 @@ def replace_nans(df):
         df[col]=df[col].fillna((df[col].median()))
     return df
 
-def load_dataset(datasetname):
+def load_dataset(datasetname, data_dir):
     print("load data..")
     if datasetname=='glasgow':
-        df = pd.read_csv(join("data", 'glasgow_features_final.csv'))
+        df = pd.read_csv(join(data_dir, 'glasgow_features_final.csv'))
     elif datasetname=='kit':
-        df = pd.read_csv(join("data", 'kit_features_final.csv'))
+        df = pd.read_csv(join(data_dir, 'kit_features_final.csv'))
     elif datasetname == 'ge':
-        df = pd.read_csv(join("data", '12sl_features_final.csv'))
+        df = pd.read_csv(join(data_dir, '12sl_features_final.csv'))
     else:
         raise Exception("specified dataset: {} is unknown".format(datasetname))    
 
     return df
+
+def save_model(model, results   , dataset='glasgow', name='rf', label_class='label_all', common_with=None):
+    def make_pretty(text):
+        rx = re.compile('([{}\'])')
+        text = rx.sub(r'', text)
+        text = text.replace(" ", "")
+        text = text.replace(":","_")
+        return text
+
+    logdir = join("./output", dataset+("_w_"+common_with if common_with is not None else ''), name+"_"+label_class + "_"+make_pretty(str(results ['params'])), str(time.time()))
+    makedirs(logdir)
+    pickle.dump(model, open(join(logdir, 'model.sav'), 'wb'))
+    with open(join(logdir, 'log.txt'), 'w') as file:
+        file.write(json.dumps(results))
 
 def to_one_hot(arr, num_classes):
     res = np.zeros((len(arr), num_classes))
@@ -33,11 +49,16 @@ def to_one_hot(arr, num_classes):
         res[i][elem] = 1
     return res
 
-def select_features(datasetname, data, common_with):
+def remove_area_features(feats):
+    return [feat for feat in feats if 'area' not in feat.lower()]
+
+def select_features(datasetname, data, common_with, data_dir):
     if common_with is None:
         return data
     # data = data[features]
-    common_features = get_common_features(data, datasetname, common_with)
+    common_features = get_common_features(data, datasetname, common_with, data_dir)
+    # pdb.set_trace()
+    # common_features = remove_area_features(common_features)
     expanded_features = expand_features(common_features)
     return data[expanded_features]
 
@@ -52,9 +73,9 @@ def expand_features(features):
             expanded_features.append(feature)
     return expanded_features
 
-def get_common_features(data, datasetname, common_with):
+def get_common_features(data, datasetname, common_with, data_dir):
     print("select {} features that are also {}".format(datasetname, common_with))
-    fm = pd.read_excel("./data/ge12sl_glasgow_kit_ECGFeaturesMapToOMOP_draft1.xlsx")
+    fm = pd.read_excel(join(data_dir, "./ge12sl_glasgow_kit_ECGFeaturesMapToOMOP_draft1.xlsx"))
     feat_col1 = feature_col_map[datasetname]
     feat_col2 = feature_col_map[common_with]
     fm = fm[['id', feat_col1, feat_col2]]
@@ -63,38 +84,42 @@ def get_common_features(data, datasetname, common_with):
     print('selected features: {}'.format(final_features))
     return final_features
 
-def get_data_from_ids(datasetname, df, labels, ids, num_classes, common_with):
+def get_data_from_ids(datasetname, df, labels, ids, num_classes, common_with, data_dir):
     data = df.loc[df['ecg_id'].isin(ids)].sort_values("ecg_id")
     valid_ids = data['ecg_id'].values
     data.drop(["ecg_id"], axis=1)
-    data = select_features(datasetname, data, common_with)
+    data = select_features(datasetname, data, common_with, data_dir)
     data = replace_nans(data)
     X = data.values
     y = labels.loc[valid_ids].values 
     y = to_one_hot(y, num_classes)
-    return X, y
+    return X, y, data.columns
 
-def get_split(datasetname, label_class, common_with, test_folds=[9, 10]):
-    df = load_dataset(datasetname)
+def get_split(datasetname, label_class, common_with, data_dir='./data'):
+    df = load_dataset(datasetname, data_dir)
     print("get split..")
     # PTB-XL Labels:
-    lbl_itos = pd.read_pickle("./data/lbl_itos.pkl")
+    lbl_itos = pd.read_pickle(join(data_dir, "lbl_itos.pkl"))
     lbl_itos = lbl_itos[label_class]
     num_classes = len(lbl_itos)
-    df_labels = pd.read_pickle("./data/df.pkl")
+    df_labels = pd.read_pickle(join(data_dir, "df.pkl"))
     label = label_class + "_filtered_numeric"
     labels = df_labels[label]
 
     # Get Ids for train and test set
     train_folds = list(range(1, 11))
-    for fold in test_folds:
+    valid_folds = [9]
+    test_folds = [10]
+    for fold in valid_folds + test_folds:
         train_folds.remove(fold)
     
     train_set_ids = df_labels[df_labels['strat_fold'].apply(lambda x: x in train_folds)].index.values
+    valid_set_ids  = df_labels[df_labels['strat_fold'].apply(lambda x: x in valid_folds)].index.values
     test_set_ids  = df_labels[df_labels['strat_fold'].apply(lambda x: x in test_folds)].index.values
 
     # get train and test data based on ids
-    X_train, y_train = get_data_from_ids(datasetname, df, labels, train_set_ids, num_classes, common_with)
-    X_test, y_test = get_data_from_ids(datasetname, df, labels, test_set_ids, num_classes, common_with)
+    X_train, y_train, features = get_data_from_ids(datasetname, df, labels, train_set_ids, num_classes, common_with, data_dir)
+    X_valid, y_valid, _ = get_data_from_ids(datasetname, df, labels, valid_set_ids, num_classes, common_with, data_dir)
+    X_test, y_test, _ = get_data_from_ids(datasetname, df, labels, test_set_ids, num_classes, common_with, data_dir)
 
-    return X_train, X_test,  y_train,  y_test
+    return X_train, X_valid, X_test, y_train, y_valid, y_test, features

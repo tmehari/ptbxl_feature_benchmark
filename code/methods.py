@@ -10,16 +10,9 @@ import time
 import pickle 
 from os import makedirs
 import json
+import pandas as pd
 
-
-def save_model(model, metrics, name='rf', label_class='label_all'):
-    logdir = join("./output", name+"_"+label_class, str(time.time()))
-    makedirs(logdir)
-    pickle.dump(model, open(join(logdir, 'model.sav'), 'wb'))
-    with open(join(logdir, 'log.txt'), 'w') as file:
-        file.write(json.dumps(metrics))
    
-
 def cal_metrics(y_true, y_pred):
     metrics = {}
     metrics['accuracy'] = 1-np.mean(abs(y_pred - y_true))
@@ -30,30 +23,38 @@ def cal_metrics(y_true, y_pred):
     metrics['recall_macro'] = sklearn.metrics.recall_score(y_true, y_pred, average='macro')
     return metrics
 
-def get_model(modelname, model_path):
+def get_model(modelname, model_path, rf_max_depth):
     if model_path is not None:
         print("load model from", model_path)
         model = pickle.load(open(model_path, 'rb'))
     elif modelname == 'rf':
         print("create random forest..")
-        model = RandomForestClassifier()
+        model = RandomForestClassifier(max_depth=rf_max_depth)
     elif modelname == "ridge":
         print("create ridge classifier..")
         model = RidgeClassifier()
     elif modelname == "nn":
-        print("fit random forest..")
+        print("fit neural network..")
         model = MLPClassifier(random_state=1, max_iter=300, hidden_layer_sizes=(256, 256, 256))
     else:
         raise Exception("'{}' modelname is unknown".format(modelname))
 
     return model
 
-def evaluate_model(model, X_test, y_test, label_class, modelname, save=True):
+def evaluate_model(model, X_test, y_test, label_class, modelname, dataset,save=True, common_with=None, modelparams={}):
     y_pred = model.predict(X_test)
-    metrics = cal_metrics(y_test, y_pred)
-    metrics['modelname'] = modelname
-    metrics['label_class'] = label_class
-    print(metrics)
-    if save:
-        save_model(model, metrics, name=modelname, label_class=label_class)
-        
+    labels = pd.read_pickle("./data/lbl_itos.pkl")[label_class]
+    
+    if hasattr(model, 'predict_proba'):
+        y_pred = model.predict_proba(X_test)
+        if type(y_pred) == list:
+            aucs={}
+            y_score = np.zeros((len(y_test), len(labels)))
+            for i in range(len(labels)):
+                y_score[:, i] = y_pred[i][:, 1]
+            auc = sklearn.metrics.roc_auc_score(y_test, y_score, labels=labels)
+            
+        else:
+            auc = sklearn.metrics.roc_auc_score(y_test, y_pred, labels=labels)
+        return auc
+    return None

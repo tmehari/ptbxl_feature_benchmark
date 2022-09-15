@@ -84,8 +84,9 @@ def get_common_features(data, datasetname, common_with, data_dir):
     print('selected features: {}'.format(final_features))
     return final_features
 
-def get_data_from_ids(datasetname, df, labels, ids, num_classes, common_with, data_dir):
-    data = df.loc[df['ecg_id'].isin(ids)].sort_values("ecg_id")
+def get_data_from_ids(datasetname, df, labels, ids, num_classes, common_with, common_with_ids, data_dir):
+    common_ids = np.intersect1d(ids, common_with_ids)
+    data = df.loc[df['ecg_id'].isin(common_ids)].sort_values("ecg_id")
     valid_ids = data['ecg_id'].values
     data.drop(["ecg_id"], axis=1)
     data = select_features(datasetname, data, common_with, data_dir)
@@ -117,9 +118,12 @@ def get_split(datasetname, label_class, common_with, data_dir='./data'):
     valid_set_ids  = df_labels[df_labels['strat_fold'].apply(lambda x: x in valid_folds)].index.values
     test_set_ids  = df_labels[df_labels['strat_fold'].apply(lambda x: x in test_folds)].index.values
 
+    common_with_df = load_dataset(common_with, data_dir)
+    common_with_ids = common_with_df["ecg_id"]
+
     # get train and test data based on ids
-    X_train, y_train, features = get_data_from_ids(datasetname, df, labels, train_set_ids, num_classes, common_with, data_dir)
-    X_valid, y_valid, _ = get_data_from_ids(datasetname, df, labels, valid_set_ids, num_classes, common_with, data_dir)
-    X_test, y_test, _ = get_data_from_ids(datasetname, df, labels, test_set_ids, num_classes, common_with, data_dir)
+    X_train, y_train, features = get_data_from_ids(datasetname, df, labels, train_set_ids, num_classes, common_with, common_with_ids, data_dir)
+    X_valid, y_valid, _ = get_data_from_ids(datasetname, df, labels, valid_set_ids, num_classes, common_with, common_with_ids, data_dir)
+    X_test, y_test, _ = get_data_from_ids(datasetname, df, labels, test_set_ids, num_classes, common_with, common_with_ids, data_dir)
 
     return X_train, X_valid, X_test, y_train, y_valid, y_test, features

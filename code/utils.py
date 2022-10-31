@@ -7,7 +7,7 @@ import time
 import pickle
 from os import makedirs
 import json 
-feature_col_map = {'glasgow':'Glasgow_feature', 'kit':'KIT_feature', 'ge':'GE_feature'}
+feature_col_map = {'unig':'Glasgow_feature', 'ecgdeli':'KIT_feature', '12sl':'GE_feature'}
 
 def replace_nans(df):
     hasnancols = list(df.columns[df.isnull().any()])
@@ -18,12 +18,12 @@ def replace_nans(df):
 
 def load_dataset(datasetname, data_dir):
     print("load data..")
-    if datasetname=='glasgow':
-        df = pd.read_csv(join(data_dir, 'glasgow_features_final.csv'))
-    elif datasetname=='kit':
-        df = pd.read_csv(join(data_dir, 'kit_features_final.csv'))
-    elif datasetname == 'ge':
-        df = pd.read_csv(join(data_dir, '12sl_features_final.csv'))
+    if datasetname=='unig':
+        df = pd.read_csv(join(data_dir, 'unig_features.csv')) # glasgow_features_final.csv
+    elif datasetname=='ecgdeli':
+        df = pd.read_csv(join(data_dir, 'ecgdeli_features.csv')) # kit_features_final.csv
+    elif datasetname == '12sl':
+        df = pd.read_csv(join(data_dir, '12sl_features.csv')) # '12sl_features_final.csv'
     else:
         raise Exception("specified dataset: {} is unknown".format(datasetname))    
 
@@ -57,9 +57,9 @@ def select_features(datasetname, data, common_with, data_dir):
         return data
     # data = data[features]
     common_features = get_common_features(data, datasetname, common_with, data_dir)
-    # pdb.set_trace()
     # common_features = remove_area_features(common_features)
     expanded_features = expand_features(common_features)
+    expanded_features = [x for x in expanded_features if x in data.columns] # should be unnecessary
     return data[expanded_features]
 
 def expand_features(features):
@@ -85,7 +85,7 @@ def get_common_features(data, datasetname, common_with, data_dir):
     return final_features
 
 def get_data_from_ids(datasetname, df, labels, ids, num_classes, common_with, common_with_ids, data_dir):
-    common_ids = np.intersect1d(ids, common_with_ids)
+    common_ids = np.intersect1d(ids, common_with_ids) if common_with_ids is not None else ids
     data = df.loc[df['ecg_id'].isin(common_ids)].sort_values("ecg_id")
     valid_ids = data['ecg_id'].values
     data.drop(["ecg_id"], axis=1)
@@ -98,6 +98,7 @@ def get_data_from_ids(datasetname, df, labels, ids, num_classes, common_with, co
 
 def get_split(datasetname, label_class, common_with, data_dir='./data'):
     df = load_dataset(datasetname, data_dir)
+
     print("get split..")
     # PTB-XL Labels:
     lbl_itos = pd.read_pickle(join(data_dir, "lbl_itos.pkl"))
@@ -117,9 +118,12 @@ def get_split(datasetname, label_class, common_with, data_dir='./data'):
     train_set_ids = df_labels[df_labels['strat_fold'].apply(lambda x: x in train_folds)].index.values
     valid_set_ids  = df_labels[df_labels['strat_fold'].apply(lambda x: x in valid_folds)].index.values
     test_set_ids  = df_labels[df_labels['strat_fold'].apply(lambda x: x in test_folds)].index.values
-
-    common_with_df = load_dataset(common_with, data_dir)
-    common_with_ids = common_with_df["ecg_id"]
+    
+    if common_with is None:
+        common_with_ids = None
+    else:
+        common_with_df = load_dataset(common_with, data_dir)
+        common_with_ids = common_with_df["ecg_id"]
 
     # get train and test data based on ids
     X_train, y_train, features = get_data_from_ids(datasetname, df, labels, train_set_ids, num_classes, common_with, common_with_ids, data_dir)

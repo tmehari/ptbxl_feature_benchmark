@@ -7,7 +7,7 @@ import time
 import pickle
 from os import makedirs
 import json 
-feature_col_map = {'unig':'Glasgow_feature', 'ecgdeli':'KIT_feature', '12sl':'GE_feature'}
+feature_col_map = {'unig':'unig_feature', 'ecgdeli':'ecgdeli_feature', '12sl':'12sl_feature'}
 
 def replace_nans(df):
     hasnancols = list(df.columns[df.isnull().any()])

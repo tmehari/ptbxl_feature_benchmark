@@ -1,75 +1,45 @@
-# Advancing the State-of-the-Art for ECG Analysis through Structured State Space Models
-This is a preliminary version of the offical code repository accompanying the ML4H submission on **Advancing the State-of-the-Art for ECG Analysis through Structured State Space Models**. The full functionality is included in the current repository but the interface/code structure is likely to improve until the end of the review period.
+# PTB-XL+, a comprehensive electrocardiographic feature dataset
+
+This is the official code repository accompanying the new dataset **PTB-XL+** hosted at physionet.com
 
 ## Usage information
 ### Preparation
-1. Install dependencies from `environment.yml` by running `conda env create -f environment.yml`, activate the environment via `conda activate ssm`
+1. Install dependencies from `environment.yml` by running `conda env create -f environment.yml`, activate the environment via `conda activate ptbfeat`
 
-2. Follow the instructions in `data_preprocessing.ipynb` on how to download and preprocess the ECG datasets; in the following, we assume for definiteness that the preprocessed dataset folders can be found at `./data/sph_fs100`, `./data/cinc_fs100`,`./data/chapman_fs100`,`./data/ribeiro_fs100` and `./data/ptb_xl_fs100`.
+2. Follow the instructions in `data_preprocessing.ipynb` on how to download and preprocess PTB-XL. Download the features files `12sl_features.csv`,  `ecgdeli_features.csv`,  `ge12sl_glasgow_kit_ECGFeaturesMapToOMOP_draft1.xlsx`  `unig_features.csv` and put them in `./data/features`. Further get the additional label informations PTB-XL+ contains about PTB-XL: `12sl_statements.csv` and `ptb_statements.csv` and put them in `./data/statements`. In the following, we assume for definiteness that the preprocessed PTB-XL can be found at  `./data/ptb_xl_fs100`, the features in `./data/features` and the statements in `./data/statements`.
 
 ### Code Structure 
-The most functionality is provided in the files `code/pretraining.py`, `code/train_ecg_model.py` and `code/finetuning.py`. 
+The most functionality is provided in the files `code/run_feature_benchmark.py` and `code/run_raw_benchmark.py`.
 
-### A1. Pretraining on All
-Pretrain a model (`4FC+4LSTM+FC` or the causal `S4` model, indicated by the `--s4` flag) using Contrastive Predictive Coding (CPC) on All2020 (which includes the cinc2020, chapman and ribeiro datasets) (will take about 6 days on a Tesla V100 GPU):
-`python code/pretraining.py --data ./data/cinc_fs100 --data ./data/chapman_fs100 --data ./data/ribeiro_fs100 --normalize --epochs 200 --output-path=./runs/cpc/all --lr 0.0001 --batch-size 32 --input-size 1000 --fc-encoder --negatives-from-same-seq-only --mlp --s4`
+### Feature Experiments 
+`code/run_feature_benchmark.py` was used to perform the feature experiments, run 
 
-The resulting model will be stored under the location indicated by the `--output-path` argument.
+`python code/run_feature_benchmark.py --dataset unig --modelname rf`
 
-### A2. Finetuning on PTB-XL
-Finetune the model by running:
-`python eval.py  --dataset ./data/ptb_xl_fs100 --model_file "path/to/pretrained/model.ckpt" --batch_size 32 --use_pretrained --l_epochs 50 --f_epochs 50 --model s4`
+to train a Random Forest on the Uni-G Features. Try a different dataset by changing the dataset parameter after `--dataset`. Available datasets are [`unig`, `ecgdeli`, `12sl`].
 
-The finetuned model will be stored in a directory next to the location of the pretrained model. Also, a pkl file will be stored, which contains the performance evaluations.
+The results of the runs will be written to `./output`
 
-### B1. Supervised Training 
-`code/train_ecg_model.py` was used to perform the supervised training experiments, run 
 
-`python code/train_ecg_model.py --dataset ./data/ptb_xl_fs100 --label_class --label_all --model s4
---logdir logs/s4_bidirectional`
+### Training a ResNet on PTB-XL labels
+Train a xresnet1d50 on the normal labels of PTB-XL (at the most finegrained level) by running:
 
-to train a bidirectional S4 model on the PTB-XL dataset.
+`python code/run_raw_benchmark.py --dataset data/ptb_xl_fs100  --label_class label_all`
 
-The results of the runs will be written to the log_dir in the following form:
+Logs and trained models are saved in `./logs`. Hence you can monitor training by `tensorboard --logdir=./logs --port 6006`. You can use a different label_set by varying `--label_class`
+Available label sets include:
 
-experiment\_logs </br>
-     	→ Wed Dec  2 17:06:54 2020\_simclr\_696\_RRC TO </br>
-            → checkpoints </br>
-                  → epoch=1654.ckpt </br>
-                  → model.ckpt </br>
-            → events.out.tfevents.1606925231 </br>
-            → hparams.yaml </br>
-      
+| Label set   |      Description      |  
+|----------|:-------------:|
+| `label_all` | original PTB-XL label set| 
+| `label_all_12sl` |    the 12SL label set of PTB-XL   |   
+| `label_all_12sl_ext_snomed` |  the 12SL label set of PTB-XL, mapped onto SNOMED labels | 
+| `label_all_ptb_ext_snomed` |  the original label set of PTB-XL, mapped onto SNOMED labels  | 
+| `label_all_12sl_ext_snomed_union` |  the original label set of PTB-XL, mapped onto SNOMED labels, but only considering labels that also occur in the 12SL SNOMED label set     |   
+| `label_all_ptb_ext_snomed_union` | the 12SL label set of PTB-XL, mapped onto SNOMED labels, but only considering labels that also occur in the orignal PTB-XL SNOMED label set  |    
 
-2 directories, 5 files
+You can test a trained model by specifiying the location of the trained model (checkpoint) with the parameter `--checkpoint_path`
 
-While hparams.yaml and the event file store the hyperparameters and tensorboard logs of the run, respectively, we store the trained models in the checkpoints directory. We store two models, the best model according to the validation loss and the last model after training.
+`python code/run_raw_benchmark.py --dataset data/ptb_xl_fs100  --label_class label_all --checkpoint_path=path/to/checkpoint --test_only`
 
-### B2. Evaluation of Supervised Training 
-Revaluate a trained model by running
-
-`python code/train_ecg_model.py --dataset ./data/ptb_xl_fs100 --label_class --label_all --model s4
---logdir logs/s4_bidirectional --test_only --checkpoint_path ./path/to/model.ckpt`
-
-### C Comparison of two models via bootstrapping
-For the bootstrap comparison the files `code/save_predictions.py` and `code/bootstrap_comparison.py` are used. 
-First save the predictions on the test set of the models you like to compare 
-For example first run 
-
-`python code/save_predictions --directory ./path/to/s4_models --model s4 --data_dir ./data/ptb_xl_fs --fs 100 --label_class label_all --save_dir ./preds/ptb` 
-
-and 
-
-`python code/save_predictions --directory ./path/to/xresnet1d50_models --model xresnet1d50 --data_dir ./data/ptb_xl_fs --fs 100 --label_class label_all --save_dir ./preds/ptb` 
-
-to save the predictions of all s4 models located in `./path/to/s4_models` in the `save_dir` `./preds/ptb/s4`, and the predictions of all xresnet1d50 models located in `./path/to/xresnet1d50_models` in `./preds/ptb/xresnet1d50`
-
-Then, by running 
-
-`python code/bootstrap_comparison.py --preds_dir1 preds/ptb/s4 --preds_dir2 preds/ptb/xresnet1d50`
-
-you compare the predictions of the all the s4 models and xresnet1d50 models and save them in the `--preds_dir1` directory, which in this case, is `./preds/ptb/s4`, in form of a dictionary. 
-
-## Pretrained models
-Will be provided in the final version of the repository.
 

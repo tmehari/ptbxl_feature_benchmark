@@ -75,7 +75,7 @@ def expand_features(features):
 
 def get_common_features(data, datasetname, common_with, data_dir):
     print("select {} features that are also {}".format(datasetname, common_with))
-    fm = pd.read_excel(join(data_dir, "./features/ge12sl_glasgow_kit_ECGFeaturesMapToOMOP_draft1.xlsx"))
+    fm = pd.read_csv(join(data_dir, "features/feature_description.csv"))
     feat_col1 = feature_col_map[datasetname]
     feat_col2 = feature_col_map[common_with]
     fm = fm[['id', feat_col1, feat_col2]]
